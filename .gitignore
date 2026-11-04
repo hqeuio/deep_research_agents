@@ -24,3 +24,6 @@ logs/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local PyCharm project settings.
+.idea/
