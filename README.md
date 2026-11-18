@@ -1,16 +1,12 @@
 # 研发技术调研与知识库 Agent
 
-当前已实现配置加载、单次模型调用和 CLI，支持输入校验、错误分类、响应检查及可调 max_tokens。这是 Agent 的模型接入基础模块，尚无工具调用循环。
+这个项目希望让程序读过技术资料再回答问题。比如，给它一份聊天室的设计说明，问「为什么需要发送队列」，回答应当指出哪一段资料解释了这个设计。资料没有给出依据时，回答也应说明缺少什么。
 
-首日验收（2026-11-04）：十二项项目测试及四项本地批量验收方法共十六项通过。曾发现的 message=None 未分类错误已修复；缺失字段、错误候选结构和无效内容均在本次受控样例中归为 invalid_response。实现过程、设计取舍与学习复盘见首日进度记录。
+目前可以在命令行向 DeepSeek 提问。CLI 统一调用 [agent.py](agent.py) 的 `run_agent`，模型可以直接回答，也可以请求查询固定笔记。一次任务默认最多请求模型三次，循环与命令行的错误出口已通过本地模拟检查。文档检索和来源引用留待后续。
 
-## 开发环境
+## 在本地运行一次问答
 
-- 已核验：Windows、Python 3.12.7、uv 0.6.14。
-- SDK：openai 3.42.1；配置文件加载：python-dotenv 1.2.4。
-- requirements.in 列直接依赖，requirements.txt 固定本次解析的全部依赖版本；复现时安装 requirements.txt，不重新解析最新版。
-
-在项目根目录使用 PowerShell：
+在项目根目录使用 PowerShell。已用 Windows、Python 3.12.7 和 uv 0.6.14 搭建环境。直接依赖列在 `requirements.in`，安装时读取锁定版本的 `requirements.txt`。若 uv 找不到 Python，可以把 `3.12` 换成本机解释器路径。默认缓存不可写时可指定 `--cache-dir`。
 
 ```powershell
 uv venv --python 3.12 .venv
@@ -18,33 +14,15 @@ uv pip sync requirements.txt --python .venv\Scripts\python.exe
 .\.venv\Scripts\python.exe -c "import openai; print(openai.__version__)"
 ```
 
-如 uv 无法定位解释器，可将 --python 3.12 替换为本地 Python 解释器的实际路径。若默认缓存目录不可写，可通过 --cache-dir 指定有写入权限的目录。
+首次运行时把 `.env.example` 复制为 `.env`，在本地填入 `DEEPSEEK_API_KEY`。示例使用 `https://api.deepseek.com` 和模型 `deepseek-flash`。已有同名进程变量时，程序优先使用进程变量。已有 `.env` 可直接编辑，密钥留在本地。
 
-## 本地配置
-
-首次配置时将 .env.example 复制为 .env，在本地编辑 DEEPSEEK_API_KEY。已有 .env 时不要覆盖；不要把密钥写入示例或提交到 Git。
-
-- 服务：DeepSeek 官方 API。
-- Base URL：https://api.deepseek.com。
-- 模型 ID：deepseek-flash；已完成真实函数调用与 CLI 调用验证。
-- 使用 OpenAI Python SDK 的 Chat Completions 兼容接口，实际请求目标由 base_url 指定。DeepSeek 参数与响应以 DeepSeek 文档为准。
-- config.py/load_settings 显式加载 .env，已有进程环境变量优先，检查三个必要字段。
-
-参考：[DeepSeek 首次调用](https://api-docs.deepseek.com/)、[OpenAI Python SDK](https://developers.openai.com/api/reference/python)。
-
-## 当前验证边界
-
-2026-11-04 本地合并验收：Ran 16 tests in 0.027s / OK。其中十二项位于 test/test_model_client.py 和 test/test_cli.py；另四项为仓库外的本地验收脚本，批量覆盖默认/自定义 token 上限、六种非法参数、十二种异常响应结构、五种 HTTP 状态到 CLI 的失败出口。仓库内命令仍运行十二项，不会显示十六项。PyCharm 使用项目 .venv/Scripts/python.exe。
-
-真实联调完成函数调用和 CLI 调用各一次；手工 CLI 帮助、纯空白输入、正常问题的退出码分别为 0/2/0。上述合并验收使用模拟依赖，不发送真实请求。模拟验证不证明真实服务错误映射、网络故障或所有协议损坏情况；原始 JSON 解析失败等 SDK 解析边界尚未专项覆盖。完整证据见 plan/研发进度Day 1.md。
-
-从项目根目录复现现有十二项测试：
+下面的命令运行仓库中的 12 项自动测试。测试使用模拟依赖。
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s test -p "test_*.py"
 ```
 
-## 运行（项目根目录）
+帮助命令可直接运行。示例问题会发送真实网络请求并产生服务用量。
 
 ```powershell
 .\.venv\Scripts\python.exe cli.py --help
@@ -52,12 +30,21 @@ uv pip sync requirements.txt --python .venv\Scripts\python.exe
 $LASTEXITCODE
 ```
 
-正常问题会发送真实请求。成功输出回答并退出 0；已知输入/配置错误退出 2，已分类模型错误退出 1。
+成功时标准输出显示正文，退出码为 `0`。输入或配置有误时退出码为 `2`。模型调用失败、工具失败或请求次数用尽时，退出码为 `1`。错误都写入标准错误流。
 
-## 接口与设计边界
+## 一次问答经过哪些代码
 
-`config.py` 加载并校验必要配置；`model_client.py` 的 `ask_once(question: str, max_tokens: int = 1024) -> str` 构造请求、提取回答并转换 SDK 异常；`cli.py` 处理命令行参数、输出流和退出码。
+[config.py](config.py) 提供地址、密钥和模型名。[model_client.py](model_client.py) 的 `request_turn` 借助 OpenAI Python SDK 3.42.1 调用 DeepSeek Chat Completions，处理鉴权、超时、连接和 HTTP 状态错误，成功时返回完整响应。`run_agent` 用 `parse_turn` 判断这轮是文本还是工具请求。工具结果带原编号发回模型，直到得到最终正文或达到请求上限。最后由 [cli.py](cli.py) 输出正文或错误。`ask_once` 仍可作为独立的普通问答函数使用。
 
-`max_tokens` 控制生成输出的 token 上限，不是输入上下文窗口，也不保证生成固定长度。调用方可以指定该参数；当前 CLI 仍使用默认值，尚无对应的命令行选项。
+请求采用非流式输出，关闭思考模式和 SDK 自动重试，SDK 网络超时为 30 秒。调用方可以用正整数 `max_tokens` 限制单次生成长度。默认 `None` 会省略该字段，使用服务端默认值。整个任务的模型请求次数由 `run_agent` 的 `max_model_calls` 限制，CLI 使用默认值。
 
-请求使用非流式输出、关闭思考模式、30 秒 SDK 网络超时及 `max_retries=0`。网络超时不是整个任务的严格总时限。响应需满足候选列表有效、结束原因为 `stop`、正文为非空字符串；这些检查不保证回答事实正确。后续工具调用流程将沿用配置与错误处理职责，并扩展消息和响应接口。
+[tools.py](tools.py) 目前只注册了 `lookup_note`。例如模型请求 `{"topic":"rag"}`，`execute_tool` 会核对工具名，解析 JSON，确认参数对象恰好包含一个允许的主题字段，然后才查笔记。未知工具、参数有误和执行失败都有各自的错误类别。
+
+## 已验证到哪一步
+
+Day 1 的 Python 函数和 CLI 各完成了一次真实问答。Day 2 的 `run_agent` 手工试跑中既见到直接回答，也见到调工具后根据笔记组织答案。随后用模拟模型响应集中检查了回传顺序与编号、最后一次请求的处理、非法上限及工具失败。CLI 接入后，原有三项检查与新增的临时分组检查一并通过，覆盖正常输出、模型和工具错误、输入错误及请求耗尽。此次 CLI 检查使用替身，真实试跑来自此前的 `run_agent`。
+
+- [Day 1 · 从配置到命令行问答](plan/研发进度Day%201.md)
+- [Day 2 · 从模型请求到工具结果](plan/研发进度Day%202.md)
+
+[DeepSeek 接口说明](https://api-docs.deepseek.com/) · [OpenAI Python SDK](https://developers.openai.com/api/reference/python)

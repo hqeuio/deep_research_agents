@@ -10,7 +10,7 @@ class CLITests(unittest.TestCase):
     def test_main_uses_supplied_arguments(self):
         output = StringIO()
 
-        with patch("cli.ask_once", return_value="测试回答") as ask:
+        with patch("cli.run_agent", return_value="测试回答") as ask:
             with redirect_stdout(output):
                 code = main(["测试问题"])
 
@@ -24,7 +24,7 @@ class CLITests(unittest.TestCase):
         errors = StringIO()  # 收集错误诊断
         error = ModelCallError("timeout", "模型请求超时")
 
-        with patch("cli.ask_once", side_effect=error) as ask:
+        with patch("cli.run_agent", side_effect=error) as ask:
             with redirect_stdout(output), redirect_stderr(errors):
                 code = main(["测试问题"])
 
@@ -38,7 +38,7 @@ class CLITests(unittest.TestCase):
         output = StringIO()
         errors = StringIO()
         error = ValueError("DEEPSEEK_API_KEY is missing or empty")
-        with patch("cli.ask_once", side_effect=error) as ask:
+        with patch("cli.run_agent", side_effect=error) as ask:
             with redirect_stdout(output), redirect_stderr(errors):
                 code = main(["测试问题"])
             self.assertEqual(code, 2)
