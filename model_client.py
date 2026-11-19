@@ -94,24 +94,3 @@ def parse_turn(response: ChatCompletion) -> tuple[str, ChatCompletionMessage]:
         if not isinstance(arguments, str):
             raise ModelCallError("invalid_response", "工具调用缺少参数字符串")
     return reason, message
-
-def ask_once(question: str, max_tokens: int | None = None) -> str:
-    question = question.strip()
-    if not question:
-        raise ValueError("question cannot be empty")
-    messages = [
-        {"role": "system",
-         "content": "你是一个精通Agents相关知识的技术专家，请充分运用你的专业知识给出精确无误的回答"},
-        {"role": "user", "content": question},
-    ]
-    response = request_turn(messages, max_tokens=max_tokens)
-    reason, message = parse_turn(response)
-    if reason != "stop":
-        raise ModelCallError("invalid_response", "单次文本问答不接受工具调用")
-
-    return message.content.strip()
-
-if __name__ == "__main__":
-    question = "用一句话解释什么是 API。"
-    answer = ask_once(question)
-    print(answer)

@@ -2,7 +2,7 @@
 
 这个项目希望让程序读过技术资料再回答问题。比如，给它一份聊天室的设计说明，问「为什么需要发送队列」，回答应当指出哪一段资料解释了这个设计。资料没有给出依据时，回答也应说明缺少什么。
 
-目前可以在命令行向 DeepSeek 提问。CLI 统一调用 [agent.py](agent.py) 的 `run_agent`，模型可以直接回答，也可以请求查询固定笔记。一次任务默认最多请求模型三次，循环与命令行的错误出口已通过本地模拟检查。文档检索和来源引用留待后续。
+目前可以在命令行向 DeepSeek 提问。CLI 统一调用 [agent.py](agent.py) 的 `run_agent`，由 LangGraph 调度模型和工具节点。模型可以直接回答，也可以请求查询固定笔记。一次任务默认最多请求模型三次，图和命令行的错误出口已通过本地模拟检查。文档检索和来源引用留待后续。
 
 ## 在本地运行一次问答
 
@@ -34,7 +34,7 @@ $LASTEXITCODE
 
 ## 一次问答经过哪些代码
 
-[config.py](config.py) 提供地址、密钥和模型名。[model_client.py](model_client.py) 的 `request_turn` 借助 OpenAI Python SDK 3.42.1 调用 DeepSeek Chat Completions，处理鉴权、超时、连接和 HTTP 状态错误，成功时返回完整响应。`run_agent` 用 `parse_turn` 判断这轮是文本还是工具请求。工具结果带原编号发回模型，直到得到最终正文或达到请求上限。最后由 [cli.py](cli.py) 输出正文或错误。`ask_once` 仍可作为独立的普通问答函数使用。
+[config.py](config.py) 提供地址、密钥和模型名。[model_client.py](model_client.py) 的 `request_turn` 借助 OpenAI Python SDK 3.42.1 调用 DeepSeek Chat Completions，处理鉴权、超时、连接和 HTTP 状态错误，成功时返回完整响应。[agent_graph.py](agent_graph.py) 的模型节点用 `parse_turn` 判断这轮是文本还是工具请求。工具节点按编号附上结果，图再返回模型节点，直到得到正文或达到请求上限。`run_agent` 从最终状态取出答案，最后由 [cli.py](cli.py) 输出正文或错误。
 
 请求采用非流式输出，关闭思考模式和 SDK 自动重试，SDK 网络超时为 30 秒。调用方可以用正整数 `max_tokens` 限制单次生成长度。默认 `None` 会省略该字段，使用服务端默认值。整个任务的模型请求次数由 `run_agent` 的 `max_model_calls` 限制，CLI 使用默认值。
 
@@ -44,7 +44,10 @@ $LASTEXITCODE
 
 Day 1 的 Python 函数和 CLI 各完成了一次真实问答。Day 2 的 `run_agent` 手工试跑中既见到直接回答，也见到调工具后根据笔记组织答案。随后用模拟模型响应集中检查了回传顺序与编号、最后一次请求的处理、非法上限及工具失败。CLI 接入后，原有三项检查与新增的临时分组检查一并通过，覆盖正常输出、模型和工具错误、输入错误及请求耗尽。此次 CLI 检查使用替身，真实试跑来自此前的 `run_agent`。
 
+Day 3 把 `run_agent` 切到图版后，三项已有 CLI 检查和四项临时集成检查一并通过。后者从实际 CLI 入口走图，使用模拟模型响应和本地笔记工具，确认历史隔离、两次跨轮回传、请求耗尽及工具错误。图版尚未发送真实模型请求。
+
 - [Day 1 · 从配置到命令行问答](plan/研发进度Day%201.md)
 - [Day 2 · 从模型请求到工具结果](plan/研发进度Day%202.md)
+- [Day 3 · 用 LangGraph 组织模型与工具](plan/研发进度Day%203.md)
 
 [DeepSeek 接口说明](https://api-docs.deepseek.com/) · [OpenAI Python SDK](https://developers.openai.com/api/reference/python)

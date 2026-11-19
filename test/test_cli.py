@@ -1,9 +1,9 @@
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-from contextlib import redirect_stdout
 from unittest.mock import patch
+
 from cli import main
-from contextlib import redirect_stdout, redirect_stderr
 from model_client import ModelCallError
 
 class CLITests(unittest.TestCase):
@@ -46,5 +46,18 @@ class CLITests(unittest.TestCase):
             self.assertIn("输入或配置错误", errors.getvalue())
             self.assertIn("DEEPSEEK_API_KEY", errors.getvalue())
             ask.assert_called_once_with("测试问题")
+    def test_blank_question_is_rejected_before_model_request(self):
+        stdout = StringIO()
+        stderr = StringIO()
+
+        with patch("agent_graph.request_turn") as request:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = main([" \t\n"])
+
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("question cannot be empty", stderr.getvalue())
+        request.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

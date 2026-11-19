@@ -1,3 +1,4 @@
-# Direct dependencies for the Day 1 model adapter.
+# Direct dependencies for the model adapter and graph orchestration.
 openai
 python-dotenv
+langgraph==1.2.23

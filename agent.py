@@ -1,50 +1,28 @@
-from model_client import request_turn, parse_turn
-from tools import NOTE_TOOL, execute_tool
+from agent_graph import build_graph, build_initial_state
 
 class AgentRunError(RuntimeError):
     pass
+# 放在函数外，因此模块加载时只编译一次图。开头的 _ 是 Python 的命名惯例，表示这是模块内部使用的变量
+_GRAPH = build_graph()
 
-def run_agent(question: str,max_model_calls: int = 3,max_tokens: int | None = None) -> str:
-    question = question.strip()
-    if not question:
-        raise ValueError("question cannot be empty")
-    if type(max_model_calls) is not int or max_model_calls < 1:
-        raise ValueError("max_model_calls must be a positive integer")
-    messages = [
-        {
-            "role": "system",
-            "content": "你是技术资料助手。涉及演示笔记内容时先调用工具，依据返回的笔记回答，不编造查询结果。",
-        },
-        {"role": "user", "content": question},
-    ]
-    for i in range(max_model_calls):
-        response = request_turn(messages, tools=[NOTE_TOOL], max_tokens=max_tokens)
-        reason, message = parse_turn(response)
-        if reason == "stop":
-            return message.content.strip()
-        elif i == max_model_calls - 1:
-            raise AgentRunError("达到模型请求上限，任务尚未完成")
-
-        call = message.tool_calls[0]
-        result = execute_tool(call.function.name, call.function.arguments)
-
-        messages.append({
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": [{
-                "id": call.id,
-                "type": "function",
-                "function": {
-                    "name": call.function.name,
-                    "arguments": call.function.arguments,
-                },
-            }]
-        })
-        messages.append({
-            "role": "tool",
-            "tool_call_id": call.id,
-            "content": result,
-        })
+def run_agent(
+    question: str,
+    max_model_calls: int = 3,
+    max_tokens: int | None = None,
+) -> str:
+    initial_state = build_initial_state(
+        question,
+        max_model_calls=max_model_calls,
+        max_tokens=max_tokens,
+    )
+    final_state = _GRAPH.invoke(
+        initial_state,
+        config={"recursion_limit": 2 * max_model_calls + 1},
+    )
+    answer = final_state["answer"]
+    if answer is None:
+        raise AgentRunError("达到模型请求上限，但任务尚未完成")
+    return answer
 
 
 if __name__ == "__main__":
